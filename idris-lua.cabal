@@ -1,0 +1,44 @@
+Name:           idris-lua
+Version:        0.0.1
+License:        BSD3
+Author:         Niklas Larsson <niklas@mm.st>
+Maintainer:     Niklas Larsson <niklas@mm.st>
+Build-Type:     Simple
+Cabal-Version:  >= 1.8
+
+Executable idris-codegen-lua
+  Main-is:        Main.hs
+  hs-source-dirs: src
+
+  Build-depends:  idris
+                , base
+                , containers
+                , directory
+                , filepath
+                , haskeline >= 0.7
+                , mtl
+                , transformers
+                , language-lua
+                , text
+                , wl-pprint
+
+  other-modules: IRTS.CodegenLua
+
+  if os(linux)
+     cpp-options:   -DLINUX
+     build-depends: unix < 2.8
+  if os(freebsd)
+     cpp-options:   -DFREEBSD
+     build-depends: unix < 2.8
+  if os(dragonfly)
+     cpp-options:   -DDRAGONFLY
+     build-depends: unix < 2.8
+  if os(darwin)
+     cpp-options:   -DMACOSX
+     build-depends: unix < 2.8
+  if os(windows)
+     cpp-options:   -DWINDOWS
+     build-depends: Win32 < 2.4
+
+  ghc-prof-options: -auto-all -caf-all
+  ghc-options:      -threaded -rtsopts -funbox-strict-fields
