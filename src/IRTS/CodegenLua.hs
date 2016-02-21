@@ -6,6 +6,7 @@ import IRTS.Simplified
 import Idris.Core.TT as TT
 
 import Data.Bits
+import qualified Data.List as DL
 import Data.Maybe
 import Data.Char
 
@@ -21,7 +22,7 @@ import Paths_idris_lua
 codegenLua :: CodeGenerator
 codegenLua ci = do let out = Block (map doCodegen (simpleDecls ci) ++ [start]) Nothing
                    let decls = Block (map getFunName (simpleDecls ci)) Nothing
-                   let src = decls `concatBlock` out
+                   let src = decls `pasteBlocks` out
                    let code = render src
                    dir <- getDataDir
                    putStrLn dir
@@ -58,10 +59,15 @@ doCodegen (n, SFun _ args i def) = cgFun n args def
 
 cgFun :: TT.Name -> [TT.Name] -> SExp -> Stat
 cgFun n args def =
-    FunAssign (FunName (luaName n) [] Nothing) (FunBody (map (loc . fst) (zip [0..] args)) False
-        (cgBody doRet def))
+    FunAssign (FunName (luaName n) [] Nothing) (FunBody (map (loc . fst) (zip [0..] args)) False body)
             where
                 doRet bs e = Block bs (Just [e])
+                (locals, block) = cgBody doRet def
+                meld xs (Block x e) = Block (xs++x) e
+                maxArg = length args - 1
+                body = (map local (DL.nub $ filter (> maxArg) locals))
+                        `meld` block
+
 --    = "function " ++ luaName n ++ "("
 --                  ++ showSep "," (map (loc . fst) (zip [0..] args)) ++ ") {\n"
 --                  ++ cgBody doRet def ++ "\n}\n\n"
@@ -74,53 +80,71 @@ cgFun n args def =
 -- We do it this way because we might calculate an expression in a deeply nested
 -- case statement, or inside a let, etc, so the assignment/return of the calculated
 -- expression itself may happen quite deeply.
-concatBlock :: Block -> Block -> Block
-concatBlock (Block b1 _) (Block b2 r) = Block (b1 ++ b2) r
+concatBlock :: ([Int], Block) -> ([Int], Block) -> ([Int], Block)
+concatBlock (x, (Block b1 _)) (y, (Block b2 r)) = (x++y, Block (b1 ++ b2) r)
 
-cgBody :: ([Stat] -> Exp -> Block) -> SExp -> Block
-cgBody ret (SV (Glob n)) = ret [] $ variable (luaName n)
-cgBody ret (SV (Loc i)) = ret [] $ variable (loc i)
-cgBody ret (SApp _ f args) = ret [] $ pfuncall (luaName f)
-                        (map (variable . cgVar) args)
+pasteBlocks :: Block -> Block -> Block
+pasteBlocks (Block x1 _) (Block x2 e) = Block (x1++x2) e
+
+local :: Int -> Stat
+local n = LocalAssign [loc n] Nothing
+
+addLocal :: Int -> ([Int], Block) -> ([Int], Block)
+addLocal n (ls, b) = ((n:ls), b)
+
+cgBody :: ([Stat] -> Exp -> Block) -> SExp -> ([Int], Block)
+cgBody ret (SV (Glob n)) = ([], ret [] $ variable (luaName n))
+cgBody ret (SV (Loc i)) = ([i], ret [] $ variable (loc i))
+cgBody ret (SApp _ f args) = ([], ret [] $ pfuncall (luaName f)
+                            (map (variable . cgVar) args))
 
 cgBody ret (SLet (Loc i) v sc)
    = concatBlock
-        (cgBody (\x y -> Block (x ++ [Assign [VarName $ loc i] [y]]) Nothing) v)
+        (addLocal i $ cgBody (\x y -> Block
+                (x ++ [Assign [VarName $ loc i] [y]]) Nothing) v)
         (cgBody ret sc)
 cgBody ret (SUpdate n e)
    = cgBody ret e
 cgBody ret (SProj e i)
-   = ret [] $ table (cgVar e) i
+   = ([], ret [] $ table (cgVar e) i)
 cgBody ret (SCon _ t n args)
-   = ret [] $ TableConst ((Field $ Number (show t)):(map (Field . variable . cgVar) args))
-cgBody ret (SCase _ e alts)
-   = let scrvar = cgVar e
-         scr = if any conCase alts then table scrvar 0 else variable scrvar in
-         Block [If (map (cgAlt ret scrvar scr) alts) Nothing] Nothing
+   = ([], ret [] $ TableConst ((Field $ Number (show t)):(map (Field . variable . cgVar) args)))
+cgBody ret (SCase _ e alts) = (concat locals, Block [If clauses Nothing] Nothing)
   where conCase (SConCase _ _ _ _ _) = True
         conCase _ = False
+        scrvar = cgVar e
+        scr = if any conCase alts then table scrvar 0 else variable scrvar
+        (locals, clauses) = unzip $ map (cgAlt ret scrvar scr) alts
 cgBody ret (SChkCase e alts)
-   = let scrvar = cgVar e
-         scr = if any conCase alts then table scrvar 0 else variable scrvar in
-            Block [If (map (cgAlt ret scrvar scr) alts) Nothing] Nothing
-  where conCase (SConCase _ _ _ _ _) = True
-        conCase _ = False
-cgBody ret (SConst c) = ret [] $ cgConst c
-cgBody ret (SOp op args) = ret [] $ cgOp op (map (variable . cgVar) args)
-cgBody ret SNothing = ret [] $ Nil
-cgBody ret (SError x) = ret [] $ String $ "error( " ++ show x ++ ")"
-cgBody ret _ = ret [] $ String $ "error(\"NOT IMPLEMENTED!!!!\")"
+   = ( concat locals, Block [If clauses Nothing] Nothing)
+     where conCase (SConCase _ _ _ _ _) = True
+           conCase _ = False
+           scrvar = cgVar e
+           scr = if any conCase alts then table scrvar 0 else variable scrvar
+           (locals, clauses) = unzip $ map (cgAlt ret scrvar scr) alts
+cgBody ret (SConst c) = ([], ret [] $ cgConst c)
+cgBody ret (SOp op args) = ([], ret [] $ cgOp op (map (variable . cgVar) args))
+cgBody ret SNothing = ([], ret [] $ Nil)
+cgBody ret (SError x) = ([], ret [] $ String $ "error( " ++ show x ++ ")")
+cgBody ret _ = ([], ret [] $ String $ "error(\"NOT IMPLEMENTED!!!!\")")
 
-cgAlt :: ([Stat] -> Exp -> Block) -> String -> Exp -> SAlt -> (Exp, Block)
+cgAlt :: ([Stat] -> Exp -> Block) -> String -> Exp -> SAlt -> ([Int], (Exp, Block))
 cgAlt ret scr test (SConstCase t exp)
-   = (Binop L.EQ test (cgConst t), cgBody ret exp)
-cgAlt ret scr test (SDefaultCase exp) = (L.Bool True, cgBody ret exp)
+   = let (ls, block) = cgBody ret exp in
+        (ls, (Binop L.EQ test (cgConst t), block))
+cgAlt ret scr test (SDefaultCase exp) =
+    let (ls, block) = cgBody ret exp in (ls, (L.Bool True, block))
 cgAlt ret scr test (SConCase lv t n args exp)
-    = (Binop L.EQ test (number t), Block (project 1 lv args) Nothing
-        `concatBlock` cgBody ret exp)
+    = (locals lv args ++ ls, (Binop L.EQ test (number t),
+            project 1 lv args `meld` block))
    where project i v [] = []
          project i v (n : ns) = [Assign [VarName $ loc v] [table scr i]]
                             ++ project (i + 1) (v + 1) ns
+         locals :: Int -> [a] -> [Int]
+         locals v [] = []
+         locals v (n:ns) = v:(locals (v+1) ns)
+         (ls, block) = cgBody ret exp
+         meld xs (Block x e) = Block (xs++x) e
 
 cgVar :: LVar -> String
 cgVar (Loc i) = loc i
