@@ -21,8 +21,8 @@ import Paths_idris_lua
 
 codegenLua :: CodeGenerator
 codegenLua ci = do let out = Block (map doCodegen (simpleDecls ci) ++ [start]) Nothing
-                   let decls = Block (map getFunName (simpleDecls ci)) Nothing
-                   let src = decls `pasteBlocks` out
+                   let decls = LocalAssign ["idris"] (Just [TableConst []])
+                   let src = [decls] `meld` out
                    let code = render src
                    dir <- getDataDir
                    let shebang = "#!/usr/bin/env luajit\n"
@@ -33,7 +33,7 @@ codegenLua ci = do let out = Block (map doCodegen (simpleDecls ci) ++ [start]) N
 render :: Block -> String
 render s = displayS (renderPretty 0.4 150 (pprint s)) ""
 
-start = funcall (luaName (sMN 0 "runMain")) []
+start = funcall (qName (sMN 0 "runMain")) []
 
 variable s = PrefixExp $ PEVar $ VarName s
 pfuncall f a = PrefixExp $ PEFunCall $ NormalFunCall (PEVar (VarName f)) (Args a)
@@ -45,6 +45,9 @@ luaName :: TT.Name -> String
 luaName n = "idris_" ++ concatMap alphanum (showCG n)
   where alphanum x | isAlpha x || isDigit x = [x]
                    | otherwise = "_" ++ show (fromEnum x) ++ "_"
+
+idrisModule = "idris"
+qName s = idrisModule ++ "." ++ (luaName s)
 
 var :: TT.Name -> String
 var (UN s) = T.unpack s
@@ -60,11 +63,12 @@ doCodegen (n, SFun _ args i def) = cgFun n args def
 
 cgFun :: TT.Name -> [TT.Name] -> SExp -> Stat
 cgFun n args def =
-    FunAssign (FunName (luaName n) [] Nothing) (FunBody (map (loc . fst) (zip [0..] args)) False body)
+    Assign [SelectName (PEVar $ VarName $ "idris") (luaName n)]
+            [EFunDef $ FunBody (map (loc . fst) (zip [0..] args)) False body]
             where
                 doRet bs e = Block bs (Just [e])
                 (locals, block) = cgBody doRet def
-                meld xs (Block x e) = Block (xs++x) e
+
                 maxArg = length args - 1
                 body = (map local (DL.nub $ filter (> maxArg) locals))
                         `meld` block
@@ -87,6 +91,8 @@ concatBody (x, (Block b1 _)) (y, (Block b2 r)) = (x++y, Block (b1 ++ b2) r)
 pasteBlocks :: Block -> Block -> Block
 pasteBlocks (Block x1 _) (Block x2 e) = Block (x1++x2) e
 
+meld xs (Block x e) = Block (xs++x) e
+
 local :: Int -> Stat
 local n = LocalAssign [loc n] Nothing
 
@@ -96,7 +102,7 @@ addLocal n (ls, b) = ((n:ls), b)
 cgBody :: ([Stat] -> Exp -> Block) -> SExp -> ([Int], Block)
 cgBody ret (SV (Glob n)) = ([], ret [] $ variable (luaName n))
 cgBody ret (SV (Loc i)) = ([i], ret [] $ variable (loc i))
-cgBody ret (SApp _ f args) = ([], ret [] $ pfuncall (luaName f)
+cgBody ret (SApp _ f args) = ([], ret [] $ pfuncall (qName f)
                             (map (variable . cgVar) args))
 
 cgBody ret (SLet (Loc i) v sc)
