@@ -25,10 +25,10 @@ codegenLua ci = do let out = Block (map doCodegen (simpleDecls ci) ++ [start]) N
                    let src = decls `pasteBlocks` out
                    let code = render src
                    dir <- getDataDir
-                   putStrLn dir
+                   let shebang = "#!/usr/bin/env luajit\n"
                    bilib <- readFile $ dir ++ "/rts/bigint.lua"
                    rtslib <- readFile $ dir ++ "/rts/rts.lua"
-                   writeFile (outputFile ci) (bilib ++ rtslib ++ code)
+                   writeFile (outputFile ci) (shebang ++ bilib ++ rtslib ++ code)
 
 render :: Block -> String
 render s = displayS (renderPretty 0.4 150 (pprint s)) ""
@@ -266,7 +266,7 @@ cgOp LStrIndex [x, y] = pfuncall "string.byte" [pfuncall "string.sub" [x, Binop 
 cgOp LStrRev [x] = pfuncall "string.reverse" [x]
 cgOp LStrSubstr [x, y, z] = pfuncall "string.sub" [x, Binop Add y (number 1), Binop Add z (number 1)]
 
-cgOp LWriteStr [_,s] = pfuncall "print" [s]
+cgOp LWriteStr [_,s] = pfuncall "io.write" [s]
 cgOp LReadStr [_] = pfuncall "io.read" []
 
 cgOp LSystemInfo [x] = pfuncall "print" [String "No!"]
