@@ -36,7 +36,7 @@ start = funcall (luaName (sMN 0 "runMain")) []
 variable s = PrefixExp $ PEVar $ VarName s
 pfuncall f a = PrefixExp $ PEFunCall $ NormalFunCall (PEVar (VarName f)) (Args a)
 funcall f a = FunCall $ NormalFunCall (PEVar (VarName f)) (Args a)
-table t n = PrefixExp $ PEVar $ Select (PEVar (VarName t)) n
+table t n = PrefixExp $ PEVar $ Select (PEVar (VarName t)) (number (n + 1))
 number n = Number $ show n
 
 luaName :: TT.Name -> String
@@ -90,18 +90,18 @@ cgBody ret (SLet (Loc i) v sc)
 cgBody ret (SUpdate n e)
    = cgBody ret e
 cgBody ret (SProj e i)
-   = ret [] $ PrefixExp $ PEVar (Select (PEVar (VarName $ cgVar e)) (Number $ show (i + 1)))
+   = ret [] $ table (cgVar e) i
 cgBody ret (SCon _ t n args)
    = ret [] $ TableConst ((Field $ Number (show t)):(map (Field . variable . cgVar) args))
 cgBody ret (SCase _ e alts)
    = let scrvar = cgVar e
-         scr = if any conCase alts then table scrvar (Number "1") else variable scrvar in
+         scr = if any conCase alts then table scrvar 0 else variable scrvar in
          Block [If (map (cgAlt ret scrvar scr) alts) Nothing] Nothing
   where conCase (SConCase _ _ _ _ _) = True
         conCase _ = False
 cgBody ret (SChkCase e alts)
    = let scrvar = cgVar e
-         scr = if any conCase alts then table scrvar (Number "1") else variable scrvar in
+         scr = if any conCase alts then table scrvar 0 else variable scrvar in
             Block [If (map (cgAlt ret scrvar scr) alts) Nothing] Nothing
   where conCase (SConCase _ _ _ _ _) = True
         conCase _ = False
@@ -119,7 +119,7 @@ cgAlt ret scr test (SConCase lv t n args exp)
     = (Binop L.EQ test (number t), Block (project 1 lv args) Nothing
         `concatBlock` cgBody ret exp)
    where project i v [] = []
-         project i v (n : ns) = [Assign [VarName $ loc v] [table scr (number (i + 1))]]
+         project i v (n : ns) = [Assign [VarName $ loc v] [table scr i]]
                             ++ project (i + 1) (v + 1) ns
 
 cgVar :: LVar -> String
@@ -127,14 +127,14 @@ cgVar (Loc i) = loc i
 cgVar (Glob n) = var n
 
 cgConst :: Const -> Exp
-cgConst (I i) = Number $ show i
-cgConst (Fl f) = number $ show f
-cgConst (Ch i) = Number $ show (ord i)
+cgConst (I i) = number i
+cgConst (Fl f) = number f
+cgConst (Ch i) = number (ord i)
 cgConst (BI i) = pfuncall "bigint" [String $ show i]
 cgConst (TT.Str s) = String $ show s
-cgConst (B8 b) = number $ show b
-cgConst (B16 b) = number $ show b
-cgConst (B32 b) = number $ show b
+cgConst (B8 b) = number b
+cgConst (B16 b) = number b
+cgConst (B32 b) = number b
 cgConst (B64 b) | b < 2^50 = pfuncall "bigint" [number b]
                 | otherwise = pfuncall "bigint" [String $ show b]
 cgConst TheWorld = String "0"
@@ -143,7 +143,6 @@ cgConst x = error $ "Constant " ++ show x ++ " not compilable yet"
 
 luaAbs :: Exp -> Exp
 luaAbs x = pfuncall "math.abs" [x]
-
 
 cap :: IntTy -> Exp -> Exp
 cap (ITFixed IT64) x = Binop Mod x $ pfuncall "bigint" [String $ show (2^64)]
