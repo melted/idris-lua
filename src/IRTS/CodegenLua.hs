@@ -27,7 +27,8 @@ codegenLua ci = do let out = Block (map doCodegen (simpleDecls ci) ++ [start]) N
                    dir <- getDataDir
                    putStrLn dir
                    bilib <- readFile $ dir ++ "/rts/bigint.lua"
-                   writeFile (outputFile ci) (bilib ++ code)
+                   rtslib <- readFile $ dir ++ "/rts/rts.lua"
+                   writeFile (outputFile ci) (bilib ++ rtslib ++ code)
 
 render :: Block -> String
 render s = displayS (renderPretty 0.4 150 (pprint s)) ""
@@ -80,8 +81,8 @@ cgFun n args def =
 -- We do it this way because we might calculate an expression in a deeply nested
 -- case statement, or inside a let, etc, so the assignment/return of the calculated
 -- expression itself may happen quite deeply.
-concatBlock :: ([Int], Block) -> ([Int], Block) -> ([Int], Block)
-concatBlock (x, (Block b1 _)) (y, (Block b2 r)) = (x++y, Block (b1 ++ b2) r)
+concatBody :: ([Int], Block) -> ([Int], Block) -> ([Int], Block)
+concatBody (x, (Block b1 _)) (y, (Block b2 r)) = (x++y, Block (b1 ++ b2) r)
 
 pasteBlocks :: Block -> Block -> Block
 pasteBlocks (Block x1 _) (Block x2 e) = Block (x1++x2) e
@@ -99,7 +100,7 @@ cgBody ret (SApp _ f args) = ([], ret [] $ pfuncall (luaName f)
                             (map (variable . cgVar) args))
 
 cgBody ret (SLet (Loc i) v sc)
-   = concatBlock
+   = concatBody
         (addLocal i $ cgBody (\x y -> Block
                 (x ++ [Assign [VarName $ loc i] [y]]) Nothing) v)
         (cgBody ret sc)
@@ -168,6 +169,9 @@ cgConst x = error $ "Constant " ++ show x ++ " not compilable yet"
 luaAbs :: Exp -> Exp
 luaAbs x = pfuncall "math.abs" [x]
 
+boolInt :: Exp -> Exp
+boolInt x = pfuncall "boolint" [x]
+
 cap :: IntTy -> Exp -> Exp
 cap (ITFixed IT64) x = Binop Mod x $ pfuncall "bigint" [String $ show (2^64)]
 cap (ITFixed b) x = Binop Mod x $ number (2^(nativeTyWidth b))
@@ -209,27 +213,27 @@ cgOp (LLSHR i) [l, r]
 cgOp (LASHR i) [l, r]
      = cap i $ Binop ShiftR l r
 cgOp (LEq _) [l, r]
-     = Binop L.EQ l r
+     = boolInt $ Binop L.EQ l r
 cgOp (LLt _) [l, r]
-     = Binop L.LT l r
+     = boolInt $ Binop L.LT l r
 cgOp (LLe _) [l, r]
-     = Binop LTE l r
+     = boolInt $ Binop LTE l r
 cgOp (LGt _) [l, r]
-     = Binop L.GT l r
+     = boolInt $ Binop L.GT l r
 cgOp (LSLt _) [l, r]
-     = Binop L.LT l r
+     = boolInt $ Binop L.LT l r
 cgOp (LSLe _) [l, r]
-     = Binop LTE l r
+     = boolInt $ Binop LTE l r
 cgOp (LSGt _) [l, r]
-     = Binop L.GT l r
+     = boolInt $ Binop L.GT l r
 cgOp (LSGe _) [l, r]
-     = Binop GTE l r
+     = boolInt $ Binop GTE l r
 cgOp (LSExt _ _) [x] = x
 cgOp (LZExt _ _) [x] = x
 cgOp (LTrunc _ i) [x] = cap i x
 cgOp LStrConcat [l,r] = Binop Concat l r
-cgOp LStrLt [l,r] = Binop L.LT l r
-cgOp LStrEq [l,r] = Binop L.EQ l r
+cgOp LStrLt [l,r] = boolInt $ Binop L.LT l r
+cgOp LStrEq [l,r] = boolInt $ Binop L.EQ l r
 cgOp LStrLen [x] = pfuncall "string.len" [x]
 cgOp (LIntFloat _) [x] = x
 cgOp (LFloatInt _) [x] = x

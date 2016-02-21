@@ -6,7 +6,8 @@ Maintainer:     Niklas Larsson <niklas@mm.st>
 Build-Type:     Simple
 Cabal-Version:  >= 1.8
 
-Data-files:     rts/bigint.lua
+Data-files:     rts/bigint.lua,
+                rts/rts.lua
 
 Executable idris-codegen-lua
   Main-is:        Main.hs
