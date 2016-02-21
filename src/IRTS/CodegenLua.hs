@@ -5,6 +5,7 @@ import IRTS.Lang
 import IRTS.Simplified
 import Idris.Core.TT as TT
 
+import Data.Bits
 import Data.Maybe
 import Data.Char
 
@@ -120,46 +121,125 @@ cgVar (Glob n) = var n
 
 cgConst :: Const -> Exp
 cgConst (I i) = Number $ show i
-cgConst (Ch i) = Number $ show (ord i) -- Treat Char as ints, because PHP treats them as Strings...
+cgConst (Fl f) = number $ show f
+cgConst (Ch i) = Number $ show (ord i)
 cgConst (BI i) = pfuncall "bigint" [String $ show i]
 cgConst (TT.Str s) = String $ show s
+cgConst (B8 b) = number $ show b
+cgConst (B16 b) = number $ show b
+cgConst (B32 b) = number $ show b
+cgConst (B64 b) | b < 2^50 = pfuncall "bigint" [number b]
+                | otherwise = pfuncall "bigint" [String $ show b]
 cgConst TheWorld = String "0"
 cgConst x | isTypeConst x = String "0"
 cgConst x = error $ "Constant " ++ show x ++ " not compilable yet"
 
-cgOp :: PrimFn -> [Exp] -> Exp
-cgOp (LPlus (ATInt _)) [l, r]
-     = Binop Add l r
-cgOp (LMinus (ATInt _)) [l, r]
-     = Binop Sub l r
-cgOp (LTimes (ATInt _)) [l, r]
-     = Binop Mul l r
-cgOp (LEq (ATInt _)) [l, r]
-     = Binop L.EQ l r
-cgOp (LSLt (ATInt _)) [l, r]
-     = Binop L.LT l r
-cgOp (LSLe (ATInt _)) [l, r]
-     = Binop LTE l r
-cgOp (LSGt (ATInt _)) [l, r]
-     = Binop L.GT l r
-cgOp (LSGe (ATInt _)) [l, r]
-     = Binop GTE l r
-cgOp LStrEq [l,r] = Binop L.EQ l r
-cgOp LStrRev [x] = pfuncall "string.reverse" [x]
-cgOp LStrLen [x] = pfuncall "string.len" [x]
-cgOp LStrHead [x] = pfuncall "string.sub" [x, Number "1", Number "2"]
-cgOp LStrIndex [x, y] = pfuncall "string.sub" [x, Binop Add y (number 1), Binop Add y (number 2)]
-cgOp LStrTail [x] = pfuncall "string.sub" [x, Number "2"]
+luaAbs :: Exp -> Exp
+luaAbs x = pfuncall "math.abs" [x]
 
-cgOp (LIntStr _) [x] = pfuncall "tostring" [x]
-cgOp (LChInt _) [x] = pfuncall "string.byte" [x]
-cgOp (LIntCh _) [x] = pfuncall "string.char" [x]
+
+cap :: IntTy -> Exp -> Exp
+cap (ITFixed IT64) x = Binop Mod x $ pfuncall "bigint" [String $ show (2^64)]
+cap (ITFixed b) x = Binop Mod x $ number (2^(nativeTyWidth b))
+cap _ x = x
+
+capa :: ArithTy -> Exp -> Exp
+capa (ATInt i) x = cap i x
+capa _ x = x
+
+cgOp :: PrimFn -> [Exp] -> Exp
+cgOp (LPlus t) [l, r]
+     = capa t $ Binop Add l r
+cgOp (LMinus t) [l, r]
+     = capa t $ Binop Sub l r
+cgOp (LTimes t) [l, r]
+     = capa t $ Binop Mul l r
+cgOp (LUDiv i) [l, r]
+     = cap i $ Binop IDiv (luaAbs l) (luaAbs r)
+cgOp (LSDiv (ATInt i)) [l, r]
+     = cap i $ Binop IDiv l r
+cgOp (LSDiv ATFloat) [l, r]
+     = Binop Div l r
+cgOp (LURem i) [l, r]
+     = cap i $ Binop Mod (luaAbs l) (luaAbs r)
+cgOp (LSRem t) [l, r]
+     = capa t $ Binop Mod l r
+cgOp (LAnd i) [l, r]
+     = cap i $Binop BAnd l r
+cgOp (LOr i) [l, r]
+     = cap i $ Binop BOr l r
+cgOp (LXOr i) [l, r]
+     = cap i $ Binop BXor l r
+cgOp (LCompl i) [b]
+     = cap i $ Unop Complement b
+cgOp (LSHL i) [l, r]
+     = cap i $ Binop ShiftL l r
+cgOp (LLSHR i) [l, r]
+     = cap i $ Binop ShiftR l r
+cgOp (LASHR i) [l, r]
+     = cap i $ Binop ShiftR l r
+cgOp (LEq _) [l, r]
+     = Binop L.EQ l r
+cgOp (LLt _) [l, r]
+     = Binop L.LT l r
+cgOp (LLe _) [l, r]
+     = Binop LTE l r
+cgOp (LGt _) [l, r]
+     = Binop L.GT l r
+cgOp (LSLt _) [l, r]
+     = Binop L.LT l r
+cgOp (LSLe _) [l, r]
+     = Binop LTE l r
+cgOp (LSGt _) [l, r]
+     = Binop L.GT l r
+cgOp (LSGe _) [l, r]
+     = Binop GTE l r
 cgOp (LSExt _ _) [x] = x
-cgOp (LTrunc _ _) [x] = x
+cgOp (LZExt _ _) [x] = x
+cgOp (LTrunc _ i) [x] = cap i x
+cgOp LStrConcat [l,r] = Binop Concat l r
+cgOp LStrLt [l,r] = Binop L.LT l r
+cgOp LStrEq [l,r] = Binop L.EQ l r
+cgOp LStrLen [x] = pfuncall "string.len" [x]
+cgOp (LIntFloat _) [x] = x
+cgOp (LFloatInt _) [x] = x
+cgOp (LIntStr _) [x] = pfuncall "tostring" [x]
+cgOp (LStrInt ITBig) [x] = pfuncall "bigint" [x]
+cgOp (LStrInt _) [x] = pfuncall "tonumber" [x]
+cgOp LFloatStr [x] = pfuncall "tostring" [x]
+cgOp LStrFloat [x] = pfuncall "tonumber" [x]
+cgOp (LChInt _) [x] = x
+cgOp (LIntCh _) [x] = x
+cgOp (LBitCast _ _) [x] = x
+
+cgOp LFExp [x] = pfuncall "math.exp" [x]
+cgOp LFLog [x] = pfuncall "math.log" [x]
+cgOp LFSin [x] = pfuncall "math.sin" [x]
+cgOp LFCos [x] = pfuncall "math.cos" [x]
+cgOp LFTan [x] = pfuncall "math.tan" [x]
+cgOp LFASin [x] = pfuncall "math.asin" [x]
+cgOp LFACos [x] = pfuncall "math.acos" [x]
+cgOp LFATan [x] = pfuncall "math.atan" [x]
+cgOp LFSqrt [x] = pfuncall "math.sqrt" [x]
+cgOp LFFloor [x] = pfuncall "math.floor" [x]
+cgOp LFCeil [x] = pfuncall "math.ceil" [x]
+cgOp LFNegate [x] = Unop Neg x
+
+cgOp LStrHead [x] = pfuncall "tonumber" [pfuncall "string.sub" [x, Number "1", Number "2"]]
+cgOp LStrTail [x] = pfuncall "string.sub" [x, Number "2"]
+cgOp LStrCons [l,r] = Binop Concat l r
+cgOp LStrIndex [x, y] = pfuncall "tonumber" [pfuncall "string.sub" [x, Binop Add y (number 1), Binop Add y (number 2)]]
+cgOp LStrRev [x] = pfuncall "string.reverse" [x]
+cgOp LStrSubstr [x, y, z] = pfuncall "string.sub" [x, Binop Add y (number 1), Binop Add z (number 1)]
+
 cgOp LWriteStr [_,str] = pfuncall "print" [str]
 cgOp LReadStr [_] = pfuncall "io.read" []
-cgOp LStrConcat [l,r] = Binop Concat l r
-cgOp LStrCons [l,r] = Binop Concat l r
-cgOp (LStrInt _) [x] = x
+
+cgOp LSystemInfo [x] = pfuncall "print" [String "No!"]
+
+-- cgOp LFork
+-- cgOp LPar
+-- cgOp (LExternal n)
+-- cgOp LNoOp
 cgOp op exps = pfuncall "print" [String $ "error(\"OPERATOR " ++ show op ++ " NOT IMPLEMENTED!!!!\")"]
    -- error("Operator " ++ show op ++ " not implemented")
