@@ -231,14 +231,14 @@ cgOp LFFloor [x] = pfuncall "math.floor" [x]
 cgOp LFCeil [x] = pfuncall "math.ceil" [x]
 cgOp LFNegate [x] = Unop Neg x
 
-cgOp LStrHead [x] = pfuncall "tonumber" [pfuncall "string.sub" [x, Number "1", Number "2"]]
-cgOp LStrTail [x] = pfuncall "string.sub" [x, Number "2"]
-cgOp LStrCons [l,r] = Binop Concat l r
-cgOp LStrIndex [x, y] = pfuncall "tonumber" [pfuncall "string.sub" [x, Binop Add y (number 1), Binop Add y (number 2)]]
+cgOp LStrHead [x] = pfuncall "string.byte" [x, number 1]
+cgOp LStrTail [x] = pfuncall "string.sub" [x, number 2]
+cgOp LStrCons [l,r] = Binop Concat (pfuncall "string.char" [l]) r
+cgOp LStrIndex [x, y] = pfuncall "string.byte" [pfuncall "string.sub" [x, Binop Add y (number 1), Binop Add y (number 2)], number 1]
 cgOp LStrRev [x] = pfuncall "string.reverse" [x]
 cgOp LStrSubstr [x, y, z] = pfuncall "string.sub" [x, Binop Add y (number 1), Binop Add z (number 1)]
 
-cgOp LWriteStr [_,str] = pfuncall "print" [str]
+cgOp LWriteStr [_,s] = pfuncall "print" [s]
 cgOp LReadStr [_] = pfuncall "io.read" []
 
 cgOp LSystemInfo [x] = pfuncall "print" [String "No!"]
