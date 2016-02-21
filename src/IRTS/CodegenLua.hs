@@ -266,8 +266,8 @@ cgOp LStrIndex [x, y] = pfuncall "string.byte" [pfuncall "string.sub" [x, Binop 
 cgOp LStrRev [x] = pfuncall "string.reverse" [x]
 cgOp LStrSubstr [x, y, z] = pfuncall "string.sub" [x, Binop Add y (number 1), Binop Add z (number 1)]
 
-cgOp LWriteStr [_,s] = pfuncall "io.write" [s]
-cgOp LReadStr [_] = pfuncall "io.read" []
+cgOp LWriteStr [_,s] = pfuncall "io.output(io.stdout):write" [s]
+cgOp LReadStr [_] = pfuncall "io.input(io.stdin):read" []
 
 cgOp LSystemInfo [x] = pfuncall "print" [String "No!"]
 
