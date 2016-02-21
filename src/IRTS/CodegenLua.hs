@@ -14,15 +14,22 @@ import qualified Data.Text as T
 import Language.Lua.PrettyPrinter
 import Language.Lua as L
 
+import Paths_idris_lua
+
 -- import Text.PrettyPrint.Leijen
 
 codegenLua :: CodeGenerator
 codegenLua ci = do let out = Block (map doCodegen (simpleDecls ci) ++ [start]) Nothing
                    let decls = Block (map getFunName (simpleDecls ci)) Nothing
                    let src = decls `concatBlock` out
-                   let code = displayS (renderPretty 0.4 80 (pprint src)) ""
-                   putStrLn code
-                   writeFile (outputFile ci) code
+                   let code = render src
+                   dir <- getDataDir
+                   putStrLn dir
+                   bilib <- readFile $ dir ++ "/rts/bigint.lua"
+                   writeFile (outputFile ci) (bilib ++ code)
+
+render :: Block -> String
+render s = displayS (renderPretty 0.4 150 (pprint s)) ""
 
 start = funcall (luaName (sMN 0 "runMain")) []
 

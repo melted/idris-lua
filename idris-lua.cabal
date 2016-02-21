@@ -6,6 +6,8 @@ Maintainer:     Niklas Larsson <niklas@mm.st>
 Build-Type:     Simple
 Cabal-Version:  >= 1.8
 
+Data-files:     rts/bigint.lua
+
 Executable idris-codegen-lua
   Main-is:        Main.hs
   hs-source-dirs: src
@@ -22,7 +24,8 @@ Executable idris-codegen-lua
                 , text
                 , wl-pprint
 
-  other-modules: IRTS.CodegenLua
+  other-modules: IRTS.CodegenLua,
+                 Paths_idris_lua
 
   if os(linux)
      cpp-options:   -DLINUX
