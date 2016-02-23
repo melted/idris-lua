@@ -194,30 +194,56 @@ cgOp (LMinus t) [l, r]
      = capa t $ Binop Sub l r
 cgOp (LTimes t) [l, r]
      = capa t $ Binop Mul l r
+cgOp (LUDiv ITBig) [l, r]
+     = pfuncall "big_abs" [Binop Div l r]
+cgOp (LUDiv (ITFixed IT64)) [l, r]
+     = pfuncall "big_abs" [Binop Div l r]
 cgOp (LUDiv i) [l, r]
-     = cap i $ Binop IDiv (luaAbs l) (luaAbs r)
+     = cap i $ luaAbs $pfuncall "math.floor" [Binop Div l r]
+cgOp (LSDiv (ATInt ITBig)) [l, r]
+    = Binop Div l r
+cgOp (LSDiv (ATInt (ITFixed IT64))) [l, r]
+    = Binop Div l r
 cgOp (LSDiv (ATInt i)) [l, r]
-     = cap i $ Binop IDiv l r
+     = cap i $ pfuncall "math.floor" [Binop Div l r]
 cgOp (LSDiv ATFloat) [l, r]
      = Binop Div l r
+cgOp (LURem ITBig) [l, r]
+     = pfuncall "big_abs" [Binop Mod l r]
+cgOp (LURem (ITFixed IT64)) [l, r]
+     = pfuncall "big_abs" [Binop Mod l r]
 cgOp (LURem i) [l, r]
-     = cap i $ Binop Mod (luaAbs l) (luaAbs r)
+     = cap i $ luaAbs $ Binop Mod l r
 cgOp (LSRem t) [l, r]
      = capa t $ Binop Mod l r
+cgOp (LAnd ITBig) [l, r] = pfuncall "big_and" [l, r]
+cgOp (LAnd (ITFixed IT64)) [l, r] = pfuncall "big_and" [l, r]
 cgOp (LAnd i) [l, r]
-     = cap i $Binop BAnd l r
+     = cap i $ pfuncall "bit.band" [l, r]
+cgOp (LOr ITBig) [l, r] = pfuncall "big_or" [l, r]
+cgOp (LOr (ITFixed IT64)) [l, r] = pfuncall "big_or" [l, r]
 cgOp (LOr i) [l, r]
-     = cap i $ Binop BOr l r
+     = cap i $ pfuncall "bit.bor" [l, r]
+cgOp (LXOr ITBig) [l, r] = pfuncall "big_xor" [l, r]
+cgOp (LXOr (ITFixed IT64)) [l, r] = pfuncall "big_xor" [l, r]
 cgOp (LXOr i) [l, r]
-     = cap i $ Binop BXor l r
+     = cap i $ pfuncall "bit.bxor" [l, r]
+cgOp (LCompl ITBig) [b] = pfuncall "big_not" [b]
+cgOp (LCompl (ITFixed IT64)) [b] = pfuncall "big_not" [b, Number "64"]
 cgOp (LCompl i) [b]
-     = cap i $ Unop Complement b
+     = cap i $ pfuncall "bit.bnot" [b]
+cgOp (LSHL ITBig) [l, r] = pfuncall "big_lshift" [l, r]
+cgOp (LSHL (ITFixed IT64)) [l, r] = pfuncall "big_lshift" [l, r]
 cgOp (LSHL i) [l, r]
-     = cap i $ Binop ShiftL l r
+     = cap i $ pfuncall "bit.lshift" [l, r]
+cgOp (LLSHR ITBig) [l, r] = pfuncall "big_rshift" [l, r]
+cgOp (LLSHR (ITFixed IT64)) [l, r] = pfuncall "big_rshift" [l, r]
 cgOp (LLSHR i) [l, r]
-     = cap i $ Binop ShiftR l r
+     = cap i $ pfuncall "bit.rshift" [l, r]
+cgOp (LASHR ITBig) [l, r] = pfuncall "big_rshift" [l, r]
+cgOp (LASHR (ITFixed IT64)) [l, r] = pfuncall "big_arshift64" [l, r]
 cgOp (LASHR i) [l, r]
-     = cap i $ Binop ShiftR l r
+     = cap i $ pfuncall "bit.arshift" [l, r]
 cgOp (LEq _) [l, r]
      = boolInt $ Binop L.EQ l r
 cgOp (LLt _) [l, r]
@@ -234,8 +260,22 @@ cgOp (LSGt _) [l, r]
      = boolInt $ Binop L.GT l r
 cgOp (LSGe _) [l, r]
      = boolInt $ Binop GTE l r
+cgOp (LSExt ITBig (ITFixed IT64)) [x] = x
+cgOp (LSExt (ITFixed IT64) ITBig) [x] = x
+cgOp (LSExt _ (ITFixed IT64)) [x] = pfuncall "bigint" [x]
+cgOp (LSExt _ ITBig) [x] = pfuncall "bigint" [x]
 cgOp (LSExt _ _) [x] = x
+cgOp (LZExt ITBig (ITFixed IT64)) [x] = x
+cgOp (LZExt (ITFixed IT64) ITBig) [x] = x
+cgOp (LZExt _ (ITFixed IT64)) [x] = pfuncall "bigint" [x]
+cgOp (LZExt _ ITBig) [x] = pfuncall "bigint" [x]
 cgOp (LZExt _ _) [x] = x
+cgOp (LTrunc (ITFixed IT64) ITBig) [x] = x
+cgOp (LTrunc _ ITBig) [x] = pfuncall "bigint" [x]
+cgOp (LTrunc ITBig it@(ITFixed IT64)) [x] = cap it x
+cgOp (LTrunc _ (ITFixed IT64)) [x] = pfuncall "bigint" [x]
+cgOp (LTrunc ITBig i) [x] = cap i $ pfuncall "big_trunc32" [x]
+cgOp (LTrunc (ITFixed IT64) i) [x] = cap i $ pfuncall "big_trunc32" [x]
 cgOp (LTrunc _ i) [x] = cap i x
 cgOp LStrConcat [l,r] = Binop Concat l r
 cgOp LStrLt [l,r] = boolInt $ Binop L.LT l r
@@ -245,6 +285,7 @@ cgOp (LIntFloat _) [x] = x
 cgOp (LFloatInt _) [x] = pfuncall "math.floor" [x]
 cgOp (LIntStr _) [x] = pfuncall "tostring" [x]
 cgOp (LStrInt ITBig) [x] = pfuncall "bigint" [x]
+cgOp (LStrInt (ITFixed IT64)) [x] = pfuncall "bigint" [x]
 cgOp (LStrInt _) [x] = pfuncall "tonumber" [x]
 cgOp LFloatStr [x] = pfuncall "tostring" [x]
 cgOp LStrFloat [x] = pfuncall "tonumber" [x]
@@ -275,7 +316,7 @@ cgOp LStrSubstr [x, y, z] = pfuncall "string.sub" [x, Binop Add y (number 1), Bi
 cgOp LWriteStr [_,s] = pfuncall "io.output(io.stdout):write" [s]
 cgOp LReadStr [_] = pfuncall "io.input(io.stdin):read" []
 
-cgOp LSystemInfo [x] = pfuncall "print" [String "No!"]
+cgOp LSystemInfo [x] = pfuncall "sysinfo" [x]
 
 -- cgOp LFork
 -- cgOp LPar

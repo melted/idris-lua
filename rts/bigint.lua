@@ -1,3 +1,4 @@
+local bit = require("bit")
 -- start bigint.lua
 --
 -- Copyright (c) 2010 Ted Unangst <ted.unangst@gmail.com>
@@ -78,8 +79,8 @@ local function cmod(a, b)
     return x
 end
 
-
-local radix = 2^24 -- maybe up to 2^26 is safe?
+local radix_bits = 24
+local radix = 2^24
 local radix_sqrt = fl(math.sqrt(radix))
 
 local bigintmt -- forward decl
@@ -530,5 +531,151 @@ function bigint(n)
     cache[n] = bi
     ncache = ncache + 1
     return bi
+end
+
+function big_lshift(n, s)
+    if type(n) == "number" then n = bigint(n) end
+    local out = clone(n)
+    local i = 0
+    if type(s) ~= "number" then i = bigint(0) end
+    while s > i do
+        out = out * 2
+        i = i + 1
+    end
+    return out
+end
+
+function big_rshift (n, s)
+    if type(n) == "number" then n = bigint(n) end
+    local out = bigint(0)
+    normalize(n)
+    local i = s
+    if type(i) ~= "number" then i = s.comps[1] end
+    local wholes = math.floor(i/radix_bits)
+    local rest = i % radix_bits
+    for z=1,#n.comps-wholes do
+        local limb=bit.band(bit.rshift(n.comps[z+wholes], rest), radix - 1)
+        if n.comps[z+wholes+1] ~= nil then
+            limb = bit.band( bit.bor(limb,
+                bit.lshift(n.comps[z + wholes +1], radix_bits - rest)), radix - 1)
+        end
+        out.comps[z] = limb
+    end
+    normalize(out)
+    return out
+end
+
+-- handle arithmetic shift for 64-bit numbers, only thing we need to
+-- do is to ignore the high bit. Real sign is in a separate field.
+function big_arshift64 (n, s)
+    local out = clone(n)
+    local hw = out.comps[4]
+    out.comps[4] = bit.band(hw, 0x7fff)
+    return big_rshift(n, s)
+end
+
+function big_and(n, m)
+    if type(n) == "number" then n = bigint(n) end
+    if type(m) == "number" then m = bigint(m) end
+    local out = bigint(0)
+    local index = 1
+    while true do
+        local mi = m.comps[index]
+        local ni = n.comps[index]
+        if ni == nil or mi == nil then break end
+        out.comps[index] = bit.band(mi, ni)
+        index = index + 1
+    end
+    normalize(out)
+    return out
+end
+
+function big_or(n, m)
+    if type(n) == "number" then n = bigint(n) end
+    if type(m) == "number" then m = bigint(m) end
+    local out = bigint(0)
+    local index = 1
+    while true do
+        local mi = m.comps[index]
+        local ni = n.comps[index]
+        if ni == nil and mi == nil then break end
+        if ni == nil then ni = 0 end
+        if mi == nil then mi = 0 end
+        out.comps[index] = bit.bor(mi, ni)
+        index = index + 1
+    end
+    normalize(out)
+    return out
+end
+
+function big_xor(n, m)
+    if type(n) == "number" then n = bigint(n) end
+    if type(m) == "number" then m = bigint(m) end
+    local out = bigint(0)
+    local index = 1
+    while true do
+        local mi = m.comps[index]
+        local ni = n.comps[index]
+        if ni == nil and mi == nil then break end
+        if ni == nil then ni = 0 end
+        if mi == nil then mi = 0 end
+        out.comps[index] = bit.bxor(mi, ni)
+        index = index + 1
+    end
+    normalize(out)
+    return out
+end
+
+function big_not(n)
+    if type(n) == "number" then n = bigint(n) end
+    local out = bigint(0)
+    local index = 1
+    while true do
+        local ni = n.comps[index]
+        if ni == nil then
+            break
+        end
+        out.comps[index] = bit.band(2^radix_bits-1, bit.bnot(ni))
+        index = index + 1
+    end
+    normalize(out)
+    return out
+end
+
+function big_not64(n)
+    if type(n) == "number" then n = bigint(n) end
+    local out = bigint(0)
+    local bits = 64
+    local index = 1
+    while bits > 0 do
+        local ni = n.comps[index]
+        if ni == nil then ni = 0 end
+        local mask = min(bits, radix_bits)
+        out.comps[index] = bit.band(2^mask-1, bit.bnot(ni))
+        index = index + 1
+        bits = bits - mask
+    end
+    normalize(out)
+    return out
+end
+
+function big_trunc8(n)
+    return bit.band(n.comps[1], 256)
+end
+
+function big_trunc16(n)
+    return bit.band(n.comps[1], 0xffff)
+end
+
+function big_trunc32(n)
+    local upper = n.comps[2]
+    if upper == nil then
+        return n.comps[1]
+    end
+    return bit.band(0xff, upper) * 2^24 + n.comps[1]
+end
+
+function big_abs(n)
+    n.sign = 1
 end
 -- end bigint.lua
