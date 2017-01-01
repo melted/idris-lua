@@ -21,7 +21,7 @@ Executable idris-codegen-lua
                 , haskeline >= 0.7
                 , mtl
                 , transformers
-                , language-lua
+                , language-lua > 0.9
                 , text
                 , wl-pprint
 

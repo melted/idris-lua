@@ -4,6 +4,7 @@ import Idris.Core.TT
 import Idris.AbsSyntax
 import Idris.ElabDecls
 import Idris.REPL
+import Idris.Main
 
 import IRTS.Compiler
 import IRTS.CodegenLua
@@ -31,7 +32,7 @@ build :: Opts -> Idris ()
 build opts = do elabPrims
                 loadInputs (inputs opts) Nothing
                 mainProg <- elabMain
-                ir <- compile (Via "lua") (output opts) (Just mainProg)
+                ir <- compile (Via IBCFormat "lua") (output opts) (Just mainProg)
                 runIO $ codegenLua ir
 
 main :: IO ()

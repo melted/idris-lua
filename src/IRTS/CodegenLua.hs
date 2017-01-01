@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module IRTS.CodegenLua(codegenLua) where
 
 import IRTS.CodegenCommon
@@ -9,6 +11,7 @@ import Data.Bits
 import qualified Data.List as DL
 import Data.Maybe
 import Data.Char
+import Data.String(IsString, fromString)
 
 import qualified Data.Text as T
 
@@ -39,21 +42,26 @@ variable s = PrefixExp $ PEVar $ VarName s
 pfuncall f a = PrefixExp $ PEFunCall $ NormalFunCall (PEVar (VarName f)) (Args a)
 funcall f a = FunCall $ NormalFunCall (PEVar (VarName f)) (Args a)
 table t n = PrefixExp $ PEVar $ Select (PEVar (VarName t)) (number (n + 1))
-number n = Number $ show n
+number n = Number $ T.pack $ show n
+string s = String $ T.pack $ show s
 
-luaName :: TT.Name -> String
-luaName n = "idris_" ++ concatMap alphanum (showCG n)
+instance IsString L.Name where
+    fromString = L.Name . T.pack
+
+luaName n = L.Name $ T.pack $ mangledName n
+
+mangledName n = "idris_" ++ concatMap alphanum (showCG n)
   where alphanum x | isAlpha x || isDigit x = [x]
                    | otherwise = "_" ++ show (fromEnum x) ++ "_"
 
 idrisModule = "idris"
-qName s = idrisModule ++ "." ++ (luaName s)
+qName s = L.Name $ T.pack $ idrisModule ++ "." ++ (mangledName s)
 
-var :: TT.Name -> String
-var (UN s) = T.unpack s
+var :: TT.Name -> L.Name
+var (UN s) = L.Name s
 
-loc :: Int -> String
-loc i = "loc" ++ show i
+loc :: Int -> L.Name
+loc i = L.Name $ T.pack $ "loc" ++ show i
 
 getFunName :: (TT.Name, SDecl) -> Stat
 getFunName (n, _) = LocalAssign [luaName n] Nothing
@@ -115,7 +123,7 @@ cgBody ret (SUpdate n e)
 cgBody ret (SProj e i)
    = ([], ret [] $ table (cgVar e) i)
 cgBody ret (SCon _ t n args)
-   = ([], ret [] $ TableConst ((Field $ Number (show t)):(map (Field . variable . cgVar) args)))
+   = ([], ret [] $ TableConst ((Field $ number t):(map (Field . variable . cgVar) args)))
 cgBody ret (SCase _ e alts) = (concat locals, Block [If clauses Nothing] Nothing)
   where conCase (SConCase _ _ _ _ _) = True
         conCase _ = False
@@ -132,10 +140,10 @@ cgBody ret (SChkCase e alts)
 cgBody ret (SConst c) = ([], ret [] $ cgConst c)
 cgBody ret (SOp op args) = ([], ret [] $ cgOp op (map (variable . cgVar) args))
 cgBody ret SNothing = ([], ret [] $ Nil)
-cgBody ret (SError x) = ([], ret [] $ String $ "error( " ++ show x ++ ")")
+cgBody ret (SError x) = ([], ret [] $ String $ T.pack $ "error( " ++ show x ++ ")")
 cgBody ret _ = ([], ret [] $ String $ "error(\"NOT IMPLEMENTED!!!!\")")
 
-cgAlt :: ([Stat] -> Exp -> Block) -> String -> Exp -> SAlt -> ([Int], (Exp, Block))
+cgAlt :: ([Stat] -> Exp -> Block) -> L.Name -> Exp -> SAlt -> ([Int], (Exp, Block))
 cgAlt ret scr test (SConstCase t exp)
    = let (ls, block) = cgBody ret exp in
         (ls, (Binop L.EQ test (cgConst t), block))
@@ -153,7 +161,7 @@ cgAlt ret scr test (SConCase lv t n args exp)
          (ls, block) = cgBody ret exp
          meld xs (Block x e) = Block (xs++x) e
 
-cgVar :: LVar -> String
+cgVar :: LVar -> L.Name
 cgVar (Loc i) = loc i
 cgVar (Glob n) = var n
 
@@ -161,13 +169,13 @@ cgConst :: Const -> Exp
 cgConst (I i) = number i
 cgConst (Fl f) = number f
 cgConst (Ch i) = number (ord i)
-cgConst (BI i) = pfuncall "bigint" [String $ show i]
-cgConst (TT.Str s) = String $ show s
+cgConst (BI i) = pfuncall "bigint" [String $ T.pack $ show i]
+cgConst (TT.Str s) = String $ T.pack $ show s
 cgConst (B8 b) = number b
 cgConst (B16 b) = number b
 cgConst (B32 b) = number b
 cgConst (B64 b) | b < 2^50 = pfuncall "bigint" [number b]
-                | otherwise = pfuncall "bigint" [String $ show b]
+                | otherwise = pfuncall "bigint" [string b]
 cgConst TheWorld = String "0"
 cgConst x | isTypeConst x = String "0"
 cgConst x = error $ "Constant " ++ show x ++ " not compilable yet"
@@ -179,7 +187,7 @@ boolInt :: Exp -> Exp
 boolInt x = pfuncall "boolint" [x]
 
 cap :: IntTy -> Exp -> Exp
-cap (ITFixed IT64) x = Binop Mod x $ pfuncall "bigint" [String $ show (2^64)]
+cap (ITFixed IT64) x = Binop Mod x $ pfuncall "bigint" [String $ T.pack $ show (2^64)]
 cap (ITFixed b) x = Binop Mod x $ number (2^(nativeTyWidth b))
 cap _ x = x
 
@@ -322,5 +330,5 @@ cgOp LSystemInfo [x] = pfuncall "sysinfo" [x]
 -- cgOp LPar
 -- cgOp (LExternal n)
 -- cgOp LNoOp
-cgOp op exps = pfuncall "print" [String $ "error(\"OPERATOR " ++ show op ++ " NOT IMPLEMENTED!!!!\")"]
+cgOp op exps = pfuncall "print" [String $ T.pack $ "error(\"OPERATOR " ++ show op ++ " NOT IMPLEMENTED!!!!\")"]
    -- error("Operator " ++ show op ++ " not implemented")
