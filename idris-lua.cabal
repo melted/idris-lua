@@ -42,7 +42,7 @@ Executable idris-codegen-lua
      build-depends: unix < 2.8
   if os(windows)
      cpp-options:   -DWINDOWS
-     build-depends: Win32 < 2.4
+     build-depends: Win32
 
   ghc-prof-options: -auto-all -caf-all
   ghc-options:      -threaded -rtsopts -funbox-strict-fields

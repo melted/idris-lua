@@ -1,5 +1,3 @@
-local bit = require("bit")
-
 function boolint(b)
     if b then
         return 1

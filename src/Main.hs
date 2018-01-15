@@ -3,6 +3,7 @@ module Main where
 import Idris.Core.TT
 import Idris.AbsSyntax
 import Idris.ElabDecls
+import Idris.Options
 import Idris.REPL
 import Idris.Main
 
@@ -18,7 +19,7 @@ data Opts = Opts { inputs :: [FilePath],
                    output :: FilePath }
 
 showUsage = do putStrLn "Usage: idris-codegen-lua <ibc-files> [-o <output-file>]"
-               exitWith ExitSuccess
+               exitSuccess
 
 getOpts :: IO Opts
 getOpts = do xs <- getArgs
@@ -37,6 +38,6 @@ build opts = do elabPrims
 
 main :: IO ()
 main = do opts <- getOpts
-          if (null (inputs opts))
+          if null (inputs opts)
              then showUsage
              else runMain (build opts)

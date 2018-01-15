@@ -55,7 +55,7 @@ mangledName n = "idris_" ++ concatMap alphanum (showCG n)
                    | otherwise = "_" ++ show (fromEnum x) ++ "_"
 
 idrisModule = "idris"
-qName s = L.Name $ T.pack $ idrisModule ++ "." ++ (mangledName s)
+qName s = L.Name $ T.pack $ idrisModule ++ "." ++ mangledName s
 
 var :: TT.Name -> L.Name
 var (UN s) = L.Name s
@@ -71,15 +71,14 @@ doCodegen (n, SFun _ args i def) = cgFun n args def
 
 cgFun :: TT.Name -> [TT.Name] -> SExp -> Stat
 cgFun n args def =
-    Assign [SelectName (PEVar $ VarName $ "idris") (luaName n)]
+    Assign [SelectName (PEVar $ VarName "idris") (luaName n)]
             [EFunDef $ FunBody (map (loc . fst) (zip [0..] args)) False body]
             where
                 doRet bs e = Block bs (Just [e])
                 (locals, block) = cgBody doRet def
 
                 maxArg = length args - 1
-                body = (map local (DL.nub $ filter (> maxArg) locals))
-                        `meld` block
+                body = map local (DL.nub $ filter (> maxArg) locals) `meld` block
 
 --    = "function " ++ luaName n ++ "("
 --                  ++ showSep "," (map (loc . fst) (zip [0..] args)) ++ ") {\n"
@@ -94,7 +93,7 @@ cgFun n args def =
 -- case statement, or inside a let, etc, so the assignment/return of the calculated
 -- expression itself may happen quite deeply.
 concatBody :: ([Int], Block) -> ([Int], Block) -> ([Int], Block)
-concatBody (x, (Block b1 _)) (y, (Block b2 r)) = (x++y, Block (b1 ++ b2) r)
+concatBody (x, Block b1 _) (y, Block b2 r) = (x++y, Block (b1 ++ b2) r)
 
 pasteBlocks :: Block -> Block -> Block
 pasteBlocks (Block x1 _) (Block x2 e) = Block (x1++x2) e
@@ -123,7 +122,7 @@ cgBody ret (SUpdate n e)
 cgBody ret (SProj e i)
    = ([], ret [] $ table (cgVar e) i)
 cgBody ret (SCon _ t n args)
-   = ([], ret [] $ TableConst ((Field $ number t):(map (Field . variable . cgVar) args)))
+   = ([], ret [] $ TableConst (Field $ number t):map (Field . variable . cgVar) args)
 cgBody ret (SCase _ e alts) = (concat locals, Block [If clauses Nothing] Nothing)
   where conCase (SConCase _ _ _ _ _) = True
         conCase _ = False
@@ -139,9 +138,9 @@ cgBody ret (SChkCase e alts)
            (locals, clauses) = unzip $ map (cgAlt ret scrvar scr) alts
 cgBody ret (SConst c) = ([], ret [] $ cgConst c)
 cgBody ret (SOp op args) = ([], ret [] $ cgOp op (map (variable . cgVar) args))
-cgBody ret SNothing = ([], ret [] $ Nil)
+cgBody ret SNothing = ([], ret [] Nil)
 cgBody ret (SError x) = ([], ret [] $ String $ T.pack $ "error( " ++ show x ++ ")")
-cgBody ret _ = ([], ret [] $ String $ "error(\"NOT IMPLEMENTED!!!!\")")
+cgBody ret _ = ([], ret [] $ String "error(\"NOT IMPLEMENTED!!!!\")")
 
 cgAlt :: ([Stat] -> Exp -> Block) -> L.Name -> Exp -> SAlt -> ([Int], (Exp, Block))
 cgAlt ret scr test (SConstCase t exp)
@@ -153,11 +152,10 @@ cgAlt ret scr test (SConCase lv t n args exp)
     = (locals lv args ++ ls, (Binop L.EQ test (number t),
             project 1 lv args `meld` block))
    where project i v [] = []
-         project i v (n : ns) = [Assign [VarName $ loc v] [table scr i]]
-                            ++ project (i + 1) (v + 1) ns
+         project i v (n : ns) = Assign [VarName $ loc v] [table scr i]:project (i + 1) (v + 1) ns
          locals :: Int -> [a] -> [Int]
          locals v [] = []
-         locals v (n:ns) = v:(locals (v+1) ns)
+         locals v (n:ns) = v:locals (v+1) ns
          (ls, block) = cgBody ret exp
          meld xs (Block x e) = Block (xs++x) e
 
@@ -188,7 +186,7 @@ boolInt x = pfuncall "boolint" [x]
 
 cap :: IntTy -> Exp -> Exp
 cap (ITFixed IT64) x = Binop Mod x $ pfuncall "bigint" [String $ T.pack $ show (2^64)]
-cap (ITFixed b) x = Binop Mod x $ number (2^(nativeTyWidth b))
+cap (ITFixed b) x = Binop Mod x $ number 2^nativeTyWidth b
 cap _ x = x
 
 capa :: ArithTy -> Exp -> Exp
