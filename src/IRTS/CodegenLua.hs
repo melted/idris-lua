@@ -20,8 +20,6 @@ import Language.Lua as L
 
 import Paths_idris_lua
 
--- import Text.PrettyPrint.Leijen
-
 codegenLua :: CodeGenerator
 codegenLua ci = do let out = Block (map doCodegen (simpleDecls ci) ++ [start]) Nothing
                    let decls = LocalAssign ["idris"] (Just [TableConst []])
@@ -80,18 +78,6 @@ cgFun n args def =
                 maxArg = length args - 1
                 body = map local (DL.nub $ filter (> maxArg) locals) `meld` block
 
---    = "function " ++ luaName n ++ "("
---                  ++ showSep "," (map (loc . fst) (zip [0..] args)) ++ ") {\n"
---                  ++ cgBody doRet def ++ "\n}\n\n"
---  where doRet :: String -> String -- Return the calculated expression
---        doRet str = "return " ++ str ++ ";"
-
--- cgBody converts the SExp into a chunk of php which calculates the result
--- of an expression, then runs the function on the resulting bit of code.
---
--- We do it this way because we might calculate an expression in a deeply nested
--- case statement, or inside a let, etc, so the assignment/return of the calculated
--- expression itself may happen quite deeply.
 concatBody :: ([Int], Block) -> ([Int], Block) -> ([Int], Block)
 concatBody (x, Block b1 _) (y, Block b2 r) = (x++y, Block (b1 ++ b2) r)
 
@@ -104,7 +90,7 @@ local :: Int -> Stat
 local n = LocalAssign [loc n] Nothing
 
 addLocal :: Int -> ([Int], Block) -> ([Int], Block)
-addLocal n (ls, b) = ((n:ls), b)
+addLocal n (ls, b) = (n:ls, b)
 
 cgBody :: ([Stat] -> Exp -> Block) -> SExp -> ([Int], Block)
 cgBody ret (SV (Glob n)) = ([], ret [] $ variable (luaName n))
@@ -122,7 +108,7 @@ cgBody ret (SUpdate n e)
 cgBody ret (SProj e i)
    = ([], ret [] $ table (cgVar e) i)
 cgBody ret (SCon _ t n args)
-   = ([], ret [] $ TableConst (Field $ number t):map (Field . variable . cgVar) args)
+   = ([], ret [] $ TableConst ((Field $ number t):map (Field . variable . cgVar) args))
 cgBody ret (SCase _ e alts) = (concat locals, Block [If clauses Nothing] Nothing)
   where conCase (SConCase _ _ _ _ _) = True
         conCase _ = False
@@ -140,6 +126,7 @@ cgBody ret (SConst c) = ([], ret [] $ cgConst c)
 cgBody ret (SOp op args) = ([], ret [] $ cgOp op (map (variable . cgVar) args))
 cgBody ret SNothing = ([], ret [] Nil)
 cgBody ret (SError x) = ([], ret [] $ String $ T.pack $ "error( " ++ show x ++ ")")
+cgBody ret (SForeign rt name args) = ([], ret [] $ handleForeign rt name args)
 cgBody ret _ = ([], ret [] $ String "error(\"NOT IMPLEMENTED!!!!\")")
 
 cgAlt :: ([Stat] -> Exp -> Block) -> L.Name -> Exp -> SAlt -> ([Int], (Exp, Block))
@@ -186,7 +173,7 @@ boolInt x = pfuncall "boolint" [x]
 
 cap :: IntTy -> Exp -> Exp
 cap (ITFixed IT64) x = Binop Mod x $ pfuncall "bigint" [String $ T.pack $ show (2^64)]
-cap (ITFixed b) x = Binop Mod x $ number 2^nativeTyWidth b
+cap (ITFixed b) x = Binop Mod x $ number $ 2^nativeTyWidth b
 cap _ x = x
 
 capa :: ArithTy -> Exp -> Exp
@@ -330,3 +317,6 @@ cgOp LSystemInfo [x] = pfuncall "sysinfo" [x]
 -- cgOp LNoOp
 cgOp op exps = pfuncall "print" [String $ T.pack $ "error(\"OPERATOR " ++ show op ++ " NOT IMPLEMENTED!!!!\")"]
    -- error("Operator " ++ show op ++ " not implemented")
+
+handleForeign :: FDesc -> FDesc -> [(FDesc, LVar)] -> Exp
+handleForeign ret name args = undefined
